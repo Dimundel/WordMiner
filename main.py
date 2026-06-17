@@ -26,8 +26,22 @@ def get_random_article():
 
 
 def display_article(source, title, summary):
-    print(title)
-    print(summary)
+    import re
+
+    clean_text = re.sub("<[^<]+?>", "", summary)
+    header = Text(f"\nSource: {source}", style="italic cyan")
+    title_text = Text(title, style="bold magenta")
+    body = Text(f"\n{clean_text}", style="white")
+
+    panel = Panel(
+        Text.assemble(title_text, body),
+        title="[bold yellow]English Passage[/bold yellow]",
+        subtitle=header,
+        padding=(1, 2),
+        width=80,
+    )
+
+    console.print(panel)
 
 
 def main():
