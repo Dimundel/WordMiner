@@ -66,8 +66,29 @@ def display_article(source, title, summary, highlight_words):
 
 
 def get_words_from_llm_response(response):
-    words = response.lower().split()
+    words = [w.strip() for w in response.splitlines() if w.strip()]
     return words
+
+
+def display_words(words):
+    if not words:
+        return
+
+    content = Text()
+
+    for i, word in enumerate(words, 1):
+        content.append(f"{i}. ", style="bold cyan")
+        content.append(f"{word.capitalize()}\n", style="bold yellow underline")
+
+    panel = Panel(
+        content,
+        title="[bold green]Vocabulary List[/bold green]",
+        border_style="green",
+        padding=(1, 2),
+        width=80,
+    )
+
+    console.print(panel)
 
 
 def main():
@@ -75,20 +96,19 @@ def main():
     console.print("[bold blue]Test[/bold blue]\n")
     source, title, summary = get_random_article()
 
-    prompt = PROMPT + "\n" + summary
-
     if source:
-        response = client.models.generate_content(
-            model="gemini-flash-lite-latest", contents=prompt
-        )
+        prompt = PROMPT + "\n" + summary
+
+        with console.status("[bold green]Analzying text..."):
+            response = client.models.generate_content(
+                model="gemini-flash-lite-latest", contents=prompt
+            )
 
         highlight_words = get_words_from_llm_response(response.text)
 
         display_article(source, title, summary, highlight_words)
-
-        words = get_words_from_llm_response(response.text)
-        for word in words:
-            print(word)
+        print()
+        display_words(highlight_words)
 
         console.print(
             "\n[dim]Press Enter to get another one or Ctrl+C to exit...[/dim]"
