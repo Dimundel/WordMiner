@@ -3,6 +3,7 @@ import random
 import json
 import re
 import requests
+import sqlite3
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv
 from rich.console import Console
@@ -28,6 +29,46 @@ Example: [{"word": "ephemeral", "definition": "lasting for a very short time"}]
 """
 
 console = Console()
+
+
+def init_db():
+    conn = sqlite3.connect("words.db")
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS words (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            word TEXT UNIQUE,
+            definition TEXT,
+            source_url TEXT,
+            added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            ease_factor REAL DEFAULT 2.5,
+            interval INTEGER DEFAULT 1,
+            next_review TIMESTAMP
+        )
+    """)
+
+    conn.commit()
+    return conn
+
+
+def save_word(conn, word, definition, source_url):
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        INSERT OR IGNORE INTO words (word, definition, source_url)
+        VALUES (?, ?, ?)
+    """,
+        (word, definition, source_url),
+    )
+    conn.commit()
+
+
+def save_words(conn, words, source_url):
+    for row in words:
+        word = row["word"]
+        definition = row["definition"]
+        save_word(conn, word, definition, source_url)
 
 
 def get_full_text(url):
@@ -113,7 +154,7 @@ def display_words(words):
     console.print(panel)
 
 
-def main():
+def main(conn):
     console.clear()
     console.print("[bold blue]Test[/bold blue]\n")
     source, title, summary = get_random_article()
@@ -132,6 +173,8 @@ def main():
         print()
         display_words(highlight_words)
 
+        save_words(conn, highlight_words, source)
+
         console.print(
             "\n[dim]Press Enter to get another one or Ctrl+C to exit...[/dim]"
         )
@@ -141,8 +184,9 @@ def main():
 
 
 if __name__ == "__main__":
+    conn = init_db()
     try:
         while True:
-            main()
+            main(conn)
     except KeyboardInterrupt:
         console.print("\nGoodbye!")
