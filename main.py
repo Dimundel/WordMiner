@@ -1,6 +1,7 @@
 import feedparser
 import random
-import os
+import json
+import re
 from dotenv import load_dotenv
 from rich.console import Console
 from rich.panel import Panel
@@ -17,8 +18,9 @@ SOURCES = {
 }
 
 PROMPT = """
-Find in the text below at least 2 words from advanced vocabulary (C1-C2 level) and print them, one by line.
-Do not write anything more.
+Find in the text below at least 2 words from advanced vocabulary (C1-C2 level).
+Return ONLY a JSON array, no markdown, no explanation.
+Example: [{"word": "ephemeral", "definition": "lasting for a very short time"}]
 """
 
 console = Console()
@@ -39,15 +41,14 @@ def get_random_article():
 
 
 def display_article(source, title, summary, highlight_words):
-    import re
-
     clean_text = re.sub("<[^<]+?>", "", summary)
     header = Text(f"\nSource: {source}", style="italic cyan")
     title_text = Text(title, style="bold magenta")
     body = Text(f"\n{clean_text}", style="white")
 
     if highlight_words:
-        for word in highlight_words:
+        for row in highlight_words:
+            word = row["word"]
             word = word.strip().strip(".,!?:;")
             if not word:
                 continue
@@ -66,8 +67,8 @@ def display_article(source, title, summary, highlight_words):
 
 
 def get_words_from_llm_response(response):
-    words = [w.strip() for w in response.splitlines() if w.strip()]
-    return words
+    data = json.loads(response)
+    return data
 
 
 def display_words(words):
@@ -76,9 +77,10 @@ def display_words(words):
 
     content = Text()
 
-    for i, word in enumerate(words, 1):
+    for i, row in enumerate(words, 1):
         content.append(f"{i}. ", style="bold cyan")
-        content.append(f"{word.capitalize()}\n", style="bold yellow underline")
+        content.append(f"{row['word']}", style="bold yellow")
+        content.append(f": {row['definition']}\n")
 
     panel = Panel(
         content,
