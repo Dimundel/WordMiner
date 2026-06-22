@@ -81,7 +81,7 @@ def get_full_text(url):
     else:
         paragraphs = soup.find_all("p")
 
-    return " ".join(p.get_text() for p in paragraphs)
+    return "\n\n".join(p.get_text() for p in paragraphs)
 
 
 def get_random_article():
