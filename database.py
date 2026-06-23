@@ -13,6 +13,8 @@ def init_db(conn):
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             word TEXT UNIQUE,
             definition TEXT,
+            context TEXT,
+            simple_synonym TEXT,
             source_url TEXT,
             added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             ease_factor REAL DEFAULT 2.5,
@@ -25,20 +27,20 @@ def init_db(conn):
     return conn
 
 
-def save_word(conn, word, definition, source_url):
-    cursor = conn.cursor()
-    cursor.execute(
-        """
-        INSERT OR IGNORE INTO words (word, definition, source_url)
-        VALUES (?, ?, ?)
-    """,
-        (word, definition, source_url),
-    )
-    conn.commit()
-
-
 def save_words(conn, words, source_url):
+    cursor = conn.cursor()
     for row in words:
-        word = row["word"]
-        definition = row["definition"]
-        save_word(conn, word, definition, source_url)
+        cursor.execute(
+            """
+            INSERT OR IGNORE INTO words (word, definition, context, simple_synonym, source_url)
+            VALUES (?, ?, ?, ?, ?)
+        """,
+            (
+                row["word"],
+                row["definition"],
+                row["context"],
+                row["simple_synonym"],
+                source_url,
+            ),
+        )
+    conn.commit()

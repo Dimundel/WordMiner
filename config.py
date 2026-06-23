@@ -14,7 +14,12 @@ SOURCES = {
 }
 
 EXTRACT_PROMPT = """
-Find in the text below words from advanced vocabulary (C1-C2 level).
-Return ONLY a JSON array, no markdown, no explanation.
-Example: [{"word": "ephemeral", "definition": "lasting for a very short time"}]
+Analyze the text below. Find advanced English vocabulary words (C1-C2 level).
+For each word, extract the following information strictly according to the JSON schema:
+1. "word": the advanced word found in the text (base form or as it appears).
+2. "definition": a clear dictionary definition of the word.
+3. "context": the EXACT full sentence from the text where this word appears. Do not change a single letter.
+4. "simple_synonym": a very simple, common synonym (A2-B1 level) that fits the context. It should be easily understood by a beginner.
+
+TEXT:
 """
