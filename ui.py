@@ -25,7 +25,6 @@ def display_article(source, title, full_text, highlight_words):
         title="[bold yellow]English Passage[/bold yellow]",
         subtitle=header,
         padding=(1, 2),
-        width=80,
     )
 
     console.print(panel)
@@ -46,6 +45,5 @@ def display_words(words):
         title="[bold green]Vocabulary List[/bold green]",
         border_style="green",
         padding=(1, 2),
-        width=80,
     )
     console.print(panel)
