@@ -13,6 +13,11 @@ class VocabularyWord(BaseModel):
 def extract_words_from_text(text: str) -> list[dict]:
     prompt = EXTRACT_PROMPT + "\n" + text
     response = CLIENT.models.generate_content(
-        model="gemini-flash-lite-latest", contents=prompt
+        model="gemini-flash-lite-latest",
+        contents=prompt,
+        config={
+            "response_mime_type": "application/json",
+            "response_schema": list[VocabularyWord],
+        },
     )
     return json.loads(response.text)
