@@ -6,7 +6,7 @@ from database import (
     save_words,
     get_words_for_practice,
     get_learning_status,
-    update_word_progess,
+    update_word_progress,
 )
 from fetcher import get_random_article
 from llm import extract_words_from_text
@@ -109,14 +109,14 @@ def mode_practice(conn):
         if answer.lower() == q["target_word"].lower():
             console.print("[bold green]Correct![/bold green]\n")
             score += 1
-            update_word_progess(conn, q["target_word"], True)
+            update_word_progress(conn, q["target_word"], True)
         else:
             console.print("[bold red]Incorrect.[/bold red]")
             console.print(
                 f"Correct answer: [bold green]{q['target_word']}[/bold green]"
             )
             console.print(f"[dim]Definition: {q['definition']}[/dim]\n")
-            update_word_progess(conn, q["target_word"], False)
+            update_word_progress(conn, q["target_word"], False)
 
     console.print(f"[bold cyan]Your result: {score}/{len(questions)}[/bold cyan]")
 

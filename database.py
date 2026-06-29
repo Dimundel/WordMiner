@@ -84,7 +84,7 @@ def get_learning_status(conn):
     return learning_count, mastered_count
 
 
-def update_word_progess(conn, word, is_correct):
+def update_word_progress(conn, word, is_correct):
     cursor = conn.cursor()
 
     cursor.execute("SELECT interval, ease_factor FROM words WHERE word = ?", (word,))
@@ -96,19 +96,21 @@ def update_word_progess(conn, word, is_correct):
     current_interval, ease_factor = row
 
     if is_correct:
+        new_ease = max(1.3, ease_factor + 0.1)
         new_interval = max(1, math.ceil(current_interval * ease_factor))
 
     else:
+        new_ease = max(1.3, ease_factor - 0.2)
         new_interval = 1
 
-    time_diff = f"+{new_interval} minutes"
+    time_diff = f"+{new_interval} days"
 
     cursor.execute(
         """
             UPDATE words
-            SET interval = ?, next_review = datetime('now', ?)
+            SET interval = ?, ease_factor = ?, next_review = datetime('now', ?)
             WHERE word = ?
                    """,
-        (new_interval, time_diff, word),
+        (new_interval, new_ease, time_diff, word),
     )
     conn.commit()
