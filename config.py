@@ -1,9 +1,16 @@
+import os
 from dotenv import load_dotenv
 from google import genai
 
 load_dotenv()
 
+api_key = os.getenv("GOOGLE_API_KEY")
+if not api_key:
+    raise EnvironmentError("GOOGLE_API_KEY is not set. Add it to your .env file.")
+
 CLIENT = genai.Client()
+MODEL = "gemini-flash-lite-latest"
+ACTIVE_LIMIT = 20
 
 SOURCES = {
     "Aeon": "https://aeon.co/feed.rss",

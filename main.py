@@ -17,9 +17,7 @@ from ui import (
     display_word_bank,
     display_practice_sentences,
 )
-
-
-ACTIVE_LIMIT = 20
+from config import ACTIVE_LIMIT
 
 
 def mode_fetch(conn):
