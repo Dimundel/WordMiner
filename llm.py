@@ -1,6 +1,6 @@
 import json
 from pydantic import BaseModel
-from config import CLIENT, EXTRACT_PROMPT
+from config import CLIENT, EXTRACT_PROMPT, MODEL
 
 
 class VocabularyWord(BaseModel):
@@ -13,7 +13,7 @@ class VocabularyWord(BaseModel):
 def extract_words_from_text(text: str) -> list[dict]:
     prompt = EXTRACT_PROMPT + "\n" + text
     response = CLIENT.models.generate_content(
-        model="gemini-flash-lite-latest",
+        model=MODEL,
         contents=prompt,
         config={
             "response_mime_type": "application/json",
