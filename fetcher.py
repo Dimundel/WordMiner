@@ -9,10 +9,10 @@ def get_full_text(url):
     try:
         response = requests.get(url, headers={"User-Agent": "Mozilla/5.0"})
         response.raise_for_status()
-    except requests.RequestException as e:
+    except requests.RequestException:
         return None
 
-    soup = BeautifulSoup(response.text, "html.parser")
+    soup = BeautifulSoup(response.content, "html.parser")
 
     article = soup.find("article")
     if article:
