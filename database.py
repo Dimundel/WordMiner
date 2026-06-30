@@ -3,7 +3,9 @@ import sqlite3
 
 
 def get_connection():
-    return sqlite3.connect("words.db")
+    conn = sqlite3.connect("words.db")
+    conn.row_factory = sqlite3.Row
+    return conn
 
 
 def init_db(conn):
@@ -68,8 +70,7 @@ def get_words_for_practice(conn, limit=5, strict=True):
         (limit,),
     )
 
-    columns = ["word", "definition", "context", "simple_synonym"]
-    return [dict(zip(columns, row)) for row in cursor.fetchall()]
+    return [dict(row) for row in cursor.fetchall()]
 
 
 def get_learning_status(conn):
