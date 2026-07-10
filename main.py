@@ -1,6 +1,6 @@
 import re
 import argparse
-from database import (
+from database.database import (
     get_connection,
     init_db,
     save_words,
@@ -8,8 +8,8 @@ from database import (
     get_learning_status,
     update_word_progress,
 )
-from fetcher import get_random_article
-from llm import extract_words_from_text
+from mining.fetcher import get_random_article
+from mining.llm import extract_words_from_text
 from ui import (
     console,
     display_article,
