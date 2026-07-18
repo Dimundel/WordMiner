@@ -1,3 +1,6 @@
+from config import CLIENT
+
+
 class EmbeddingService:
     def __init__(self, provider="google"):
         self.provider = provider
@@ -9,7 +12,10 @@ class EmbeddingService:
             return self._get_local_embedding(text)
 
     def _get_google_embedding(self, text: str):
-        pass
+        embedding = CLIENT.models.embed_content(
+            model="gemini-embedding-2", contents=text
+        )
+        return embedding
 
     def _get_local_embedding(self, text: str):
         raise NotImplementedError("TODO: include a local model for embeddings")
