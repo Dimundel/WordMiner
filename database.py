@@ -16,6 +16,7 @@ def init_db(conn):
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             word TEXT UNIQUE,
             definition TEXT,
+            embedding TEXT,
             context TEXT,
             simple_synonym TEXT,
             source_url TEXT,
@@ -69,6 +70,18 @@ def get_words_for_practice(conn, limit=5, strict=True):
         query,
         (limit,),
     )
+
+    return [dict(row) for row in cursor.fetchall()]
+
+
+def get_all_words(conn):
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT word, definition, context, simple_synonym, source_url, interval
+        FROM words
+        ORDER BY word
+    """)
 
     return [dict(row) for row in cursor.fetchall()]
 
