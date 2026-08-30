@@ -25,6 +25,21 @@ MASTERED_INTERVAL = 14
 SIMILARITY_FLOOR = 0.05
 SIMILARITY_PERCENTILE = 0.94
 
+# Of the eight hues in the data-viz reference palette, only two four-colour
+# subsets clear the all-pairs colour-blindness and separation gates in both
+# themes; five clear none. A network puts every cluster next to every other, so
+# all-pairs is the applicable gate. The largest clusters take these hues and the
+# rest stay neutral, rather than cycling into colours that cannot be told apart.
+#
+# Two results carry conditions: green/yellow lands in the CVD warn band on dark,
+# and yellow/magenta fall below 3:1 on light. Both are permitted only alongside
+# an encoding other than colour, which is why clusters are also laid out apart
+# and labelled directly.
+CLUSTER_PALETTE = {
+    "light": ["#4a3aa7", "#e87ba4", "#008300", "#eda100"],
+    "dark": ["#9085e9", "#d55181", "#008300", "#c98500"],
+}
+
 OUTPUT_FILE = "graph.html"
 
 CDN = "https://cdnjs.cloudflare.com/ajax/libs/vis-network/9.1.9/dist/vis-network.min.js"
@@ -68,12 +83,7 @@ def similarity_edges(words):
     cutoff = max(SIMILARITY_FLOOR, ranked[int(SIMILARITY_PERCENTILE * len(ranked))])
 
     edges = [
-        {
-            "from": a,
-            "to": b,
-            "value": score,
-            "title": f"similarity {score:+.2f}",
-        }
+        {"from": a, "to": b, "value": score, "title": f"similarity {score:+.2f}"}
         for (a, b), score in scores.items()
         if score >= cutoff
     ]
@@ -90,33 +100,67 @@ def source_edges(words):
     edges = []
     for source, rows in by_source.items():
         hub = f"source::{source}"
-        nodes.append({"id": hub, "label": source, "group": "source"})
+        nodes.append({"id": hub, "label": source, "cluster": None})
         edges.extend({"from": hub, "to": row["word"]} for row in rows)
 
     return nodes, edges
 
 
-def build_graph(words):
-    nodes = [
-        {
-            "id": row["word"],
-            "label": row["word"],
-            "group": "mastered"
-            if (row["interval"] or 0) >= MASTERED_INTERVAL
-            else "learning",
-            "title": tooltip(row),
-            "url": row.get("article_url"),
-        }
-        for row in words
-    ]
+def clusters(names, edges):
+    """Connected components, largest first."""
+    parent = {name: name for name in names}
 
-    edges = similarity_edges(words)
-    if not edges:
-        # Nothing embedded yet: fall back to grouping by where words came from.
-        hubs, edges = source_edges(words)
-        nodes.extend(hubs)
+    def root(name):
+        while parent[name] != name:
+            parent[name] = parent[parent[name]]
+            name = parent[name]
+        return name
 
-    return nodes, edges
+    for edge in edges:
+        if edge["from"] in parent and edge["to"] in parent:
+            parent[root(edge["from"])] = root(edge["to"])
+
+    grouped = defaultdict(list)
+    for name in names:
+        grouped[root(name)].append(name)
+
+    return sorted(grouped.values(), key=lambda members: (-len(members), members[0]))
+
+
+def central_word(members, edges):
+    """The member carrying the most similarity weight names the cluster."""
+    inside = set(members)
+    weight = defaultdict(float)
+    for edge in edges:
+        if edge["from"] in inside and edge["to"] in inside:
+            weight[edge["from"]] += edge.get("value", 0)
+            weight[edge["to"]] += edge.get("value", 0)
+
+    return max(members, key=lambda word: (weight[word], -len(word)))
+
+
+def layout(groups):
+    """Seed each cluster around its own centre.
+
+    Physics alone starts from noise and drags overlapping clusters apart while
+    the viewer watches; starting them apart converges quicker and calmer.
+    """
+    positions = {}
+    spread = 320 + 90 * len(groups)
+
+    for index, members in enumerate(groups):
+        angle = 2 * math.pi * index / max(len(groups), 1)
+        cx, cy = spread * math.cos(angle), spread * math.sin(angle)
+        radius = 30 + 22 * len(members)
+
+        for offset, word in enumerate(members):
+            local = 2 * math.pi * offset / max(len(members), 1)
+            positions[word] = (
+                cx + radius * math.cos(local),
+                cy + radius * math.sin(local),
+            )
+
+    return positions
 
 
 def tooltip(row):
@@ -138,79 +182,336 @@ def tooltip(row):
     return "<br><br>".join(parts)
 
 
-def render_html(nodes, edges):
-    # </script> inside the data would close the tag early.
-    data = json.dumps({"nodes": nodes, "edges": edges}, ensure_ascii=False).replace(
-        "</", "<\\/"
+def build_graph(words):
+    edges = similarity_edges(words)
+    hubs = []
+
+    if not edges:
+        # Nothing embedded yet: fall back to grouping by where words came from.
+        hubs, edges = source_edges(words)
+
+    names = [row["word"] for row in words]
+    groups = clusters(names, edges)
+    positions = layout(groups)
+
+    colour_of = {}
+    for index, members in enumerate(groups):
+        for word in members:
+            # Lone words get no hue: a colour would imply a grouping they lack.
+            colour_of[word] = index if len(members) > 1 else None
+
+    nodes = [
+        {
+            "id": row["word"],
+            "label": row["word"],
+            "cluster": colour_of.get(row["word"]),
+            "mastered": (row["interval"] or 0) >= MASTERED_INTERVAL,
+            "title": tooltip(row),
+            "url": row.get("article_url"),
+            "x": round(positions[row["word"]][0]),
+            "y": round(positions[row["word"]][1]),
+        }
+        for row in words
+    ]
+    nodes.extend({**hub, "mastered": False, "title": hub["label"]} for hub in hubs)
+
+    legend = [
+        {
+            "cluster": index,
+            "name": central_word(members, edges),
+            "size": len(members),
+            "words": sorted(members),
+        }
+        for index, members in enumerate(groups)
+        if len(members) > 1
+    ]
+    alone = sorted(m[0] for m in groups if len(m) == 1)
+
+    return nodes, edges, {"clusters": legend, "alone": alone}
+
+
+def render_html(nodes, edges, legend):
+    payload = json.dumps(
+        {
+            "nodes": nodes,
+            "edges": edges,
+            "legend": legend,
+            "palette": CLUSTER_PALETTE,
+        },
+        ensure_ascii=False,
+    ).replace("</", "<\\/")  # a literal </script> would close the tag early
+
+    return (
+        TEMPLATE.replace("__CDN__", CDN)
+        .replace("__WORDS__", str(len(nodes)))
+        .replace("__LINKS__", str(len(edges)))
+        .replace("__DATA__", payload)
     )
 
-    return f"""<!doctype html>
-<html>
+
+TEMPLATE = """<!doctype html>
+<html lang="en">
 <head>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>WordMiner graph</title>
-<script src="{CDN}"></script>
+<script src="__CDN__"></script>
 <style>
-  html, body {{ margin: 0; height: 100%; background: #14161a; }}
-  #graph {{ width: 100%; height: 100%; }}
-  #hint {{
-    position: fixed; top: 12px; left: 16px; z-index: 1;
-    font: 13px system-ui, sans-serif; color: #8a929e;
-  }}
-  div.vis-tooltip {{
-    background: #1e222a; border: 1px solid #333a45; border-radius: 6px;
-    color: #dfe3e8; padding: 10px 12px; max-width: 340px;
-    white-space: normal; font: 13px/1.5 system-ui, sans-serif;
-    box-shadow: 0 6px 20px rgba(0,0,0,.45);
-  }}
+  :root {
+    color-scheme: light;
+    --surface:   #fcfcfb;
+    --panel:     #ffffff;
+    --line:      #e3e2dd;
+    --ink:       #0b0b0b;
+    --ink-soft:  #52514e;
+    --ink-faint: #86847d;
+    --neutral:   #9b9a93;
+    --edge:      #c9c8c1;
+    --shadow:    0 6px 24px rgba(0,0,0,.10);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --surface:   #1a1a19;
+      --panel:     #242422;
+      --line:      #37372f;
+      --ink:       #ffffff;
+      --ink-soft:  #c3c2b7;
+      --ink-faint: #8b8a80;
+      --neutral:   #6f6e66;
+      --edge:      #3d3d36;
+      --shadow:    0 6px 24px rgba(0,0,0,.5);
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --surface:   #1a1a19;
+    --panel:     #242422;
+    --line:      #37372f;
+    --ink:       #ffffff;
+    --ink-soft:  #c3c2b7;
+    --ink-faint: #8b8a80;
+    --neutral:   #6f6e66;
+    --edge:      #3d3d36;
+    --shadow:    0 6px 24px rgba(0,0,0,.5);
+  }
+
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: var(--surface);
+    color: var(--ink);
+    font: 14px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  #graph { position: absolute; inset: 0; }
+
+  .panel {
+    position: absolute;
+    top: 20px; left: 20px;
+    width: 260px;
+    max-height: calc(100% - 40px);
+    display: flex; flex-direction: column;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    box-shadow: var(--shadow);
+    overflow: hidden;
+  }
+  .panel header { padding: 16px 18px 12px; border-bottom: 1px solid var(--line); }
+  .panel h1 { margin: 0; font-size: 15px; font-weight: 600; letter-spacing: -0.01em; }
+  .panel .meta { margin-top: 3px; color: var(--ink-faint); font-size: 12px; font-variant-numeric: tabular-nums; }
+  .panel .body { padding: 8px 8px 12px; overflow-y: auto; }
+
+  .group {
+    width: 100%;
+    display: flex; align-items: baseline; gap: 9px;
+    padding: 7px 10px;
+    border: 0; border-radius: 8px;
+    background: none; color: inherit;
+    font: inherit; text-align: left; cursor: pointer;
+  }
+  .group:hover { background: color-mix(in srgb, var(--ink) 6%, transparent); }
+  .group[aria-pressed="true"] { background: color-mix(in srgb, var(--ink) 10%, transparent); }
+  .swatch { width: 9px; height: 9px; border-radius: 50%; flex: 0 0 auto; transform: translateY(1px); }
+  .group .name { flex: 1; font-weight: 500; }
+  .group .count { color: var(--ink-faint); font-size: 12px; font-variant-numeric: tabular-nums; }
+  .alone { padding: 10px 10px 2px; color: var(--ink-faint); font-size: 12px; line-height: 1.7; }
+  .alone b { display: block; margin-bottom: 3px; font-weight: 500; color: var(--ink-soft); }
+
+  .hint {
+    position: absolute; bottom: 20px; left: 20px;
+    color: var(--ink-faint); font-size: 12px;
+  }
+
+  div.vis-tooltip {
+    position: absolute;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    box-shadow: var(--shadow);
+    color: var(--ink);
+    padding: 11px 13px;
+    max-width: 330px;
+    white-space: normal;
+    font: 13px/1.55 ui-sans-serif, system-ui, sans-serif;
+  }
+  div.vis-tooltip small { color: var(--ink-faint); }
+  div.vis-tooltip i { color: var(--ink-soft); }
+
+  @media (max-width: 620px) {
+    .panel { position: static; width: auto; margin: 12px; max-height: 38%; }
+    #graph { top: auto; height: 62%; bottom: 0; }
+    .hint { display: none; }
+  }
 </style>
 </head>
 <body>
-<div id="hint">{len(nodes)} nodes &middot; hover a word for its definition</div>
 <div id="graph"></div>
+
+<aside class="panel">
+  <header>
+    <h1>Vocabulary graph</h1>
+    <div class="meta">__WORDS__ words · __LINKS__ links</div>
+  </header>
+  <div class="body">
+    <div id="groups"></div>
+    <div class="alone" id="alone" hidden></div>
+  </div>
+</aside>
+
+<div class="hint">Click a word to open its article</div>
+
 <script>
-const data = {data};
+const data = __DATA__;
 
-const groups = {{
-  learning: {{ color: {{ background: "#3d6fd1", border: "#5b8ae8" }} }},
-  mastered: {{ color: {{ background: "#2f8f5b", border: "#46b177" }} }},
-  source: {{
-    shape: "box",
-    color: {{ background: "#2a2f38", border: "#454c58" }},
-    font: {{ color: "#9aa3af", size: 13 }},
-  }},
-}};
+const css = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+const isDark = () =>
+  document.documentElement.dataset.theme === "dark" ||
+  (document.documentElement.dataset.theme !== "light" &&
+   matchMedia("(prefers-color-scheme: dark)").matches);
 
-const network = new vis.Network(document.getElementById("graph"), data, {{
-  groups: groups,
-  nodes: {{
-    shape: "dot",
-    size: 16,
-    font: {{ color: "#e6e9ed", size: 15, face: "system-ui" }},
-    borderWidth: 2,
-  }},
-  edges: {{
-    color: {{ color: "#39414d", highlight: "#6b7686" }},
-    width: 1.5,
-    scaling: {{ min: 1, max: 6, label: false }},
-    smooth: {{ type: "continuous" }},
-  }},
-  physics: {{
-    solver: "forceAtlas2Based",
-    forceAtlas2Based: {{ gravitationalConstant: -60, springLength: 120 }},
-    stabilization: {{ iterations: 300 }},
-  }},
-  interaction: {{ hover: true, tooltipDelay: 120 }},
-}});
+const hueFor = node => {
+  const palette = data.palette[isDark() ? "dark" : "light"];
+  return node.cluster === null || node.cluster >= palette.length
+    ? css("--neutral")
+    : palette[node.cluster];
+};
 
-const urls = Object.fromEntries(
-  data.nodes.filter(n => n.url).map(n => [n.id, n.url])
+// A mastered word is drawn hollow. Colour already carries the cluster, so
+// progress needs a channel of its own rather than a second set of hues.
+const paint = node => {
+  const hue = hueFor(node);
+  return {
+    color: {
+      background: node.mastered ? css("--surface") : hue,
+      border: hue,
+      highlight: { background: hue, border: css("--ink") },
+      hover: { background: hue, border: css("--ink") },
+    },
+    borderWidth: node.mastered ? 3 : 1.5,
+  };
+};
+
+const nodes = new vis.DataSet(data.nodes.map(n => ({ ...n, ...paint(n) })));
+const edges = new vis.DataSet(
+  data.edges.map((e, i) => ({ id: "e" + i, ...e }))
 );
 
-network.on("click", params => {{
+const network = new vis.Network(
+  document.getElementById("graph"),
+  { nodes, edges },
+  {
+    nodes: {
+      shape: "dot",
+      size: 13,
+      font: { size: 14, face: "ui-sans-serif, system-ui, sans-serif", vadjust: -2 },
+      shadow: false,
+    },
+    edges: {
+      width: 1,
+      scaling: { min: 0.8, max: 4, label: false },
+      smooth: { type: "continuous", roundness: 0.35 },
+      selectionWidth: 2,
+    },
+    physics: {
+      solver: "forceAtlas2Based",
+      forceAtlas2Based: {
+        gravitationalConstant: -110,
+        centralGravity: 0.006,
+        springLength: 130,
+        springConstant: 0.05,
+        avoidOverlap: 0.35,
+      },
+      stabilization: { iterations: 400, updateInterval: 40 },
+      timestep: 0.4,
+    },
+    interaction: { hover: true, tooltipDelay: 120, navigationButtons: false },
+  }
+);
+
+// --- theme ------------------------------------------------------------------
+function repaint() {
+  nodes.update(data.nodes.map(n => ({ id: n.id, ...paint(n) })));
+  network.setOptions({
+    nodes: { font: { color: css("--ink") } },
+    edges: { color: { color: css("--edge"), highlight: css("--ink-soft"), hover: css("--ink-soft") } },
+  });
+  document.querySelectorAll(".swatch").forEach(el => {
+    el.style.background = hueFor({ cluster: Number(el.dataset.cluster) });
+  });
+}
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change", repaint);
+
+// --- legend -----------------------------------------------------------------
+const groupsEl = document.getElementById("groups");
+let active = null;
+
+data.legend.clusters.forEach(group => {
+  const button = document.createElement("button");
+  button.className = "group";
+  button.type = "button";
+  button.setAttribute("aria-pressed", "false");
+  button.innerHTML =
+    `<span class="swatch" data-cluster="${group.cluster}"></span>` +
+    `<span class="name"></span><span class="count">${group.size}</span>`;
+  button.querySelector(".name").textContent = group.name;
+  button.title = group.words.join(", ");
+  button.onclick = () => {
+    active = active === group.cluster ? null : group.cluster;
+    document.querySelectorAll(".group").forEach((el, i) =>
+      el.setAttribute("aria-pressed", String(data.legend.clusters[i].cluster === active))
+    );
+    if (active === null) {
+      network.unselectAll();
+      network.fit({ animation: { duration: 400 } });
+    } else {
+      network.selectNodes(group.words);
+      network.fit({ nodes: group.words, animation: { duration: 400 } });
+    }
+  };
+  groupsEl.appendChild(button);
+});
+
+if (data.legend.alone.length) {
+  const el = document.getElementById("alone");
+  el.hidden = false;
+  el.innerHTML = "<b>On their own</b>";
+  el.append(data.legend.alone.join(", "));
+}
+
+// --- open the article --------------------------------------------------------
+const urls = Object.fromEntries(data.nodes.filter(n => n.url).map(n => [n.id, n.url]));
+network.on("click", params => {
   const url = urls[params.nodes[0]];
   if (url) window.open(url, "_blank", "noopener");
-}});
+});
+
+network.once("stabilizationIterationsDone", () => {
+  network.setOptions({ physics: { enabled: false } });
+  network.fit({ animation: { duration: 500 } });
+});
+
+repaint();
 </script>
 </body>
 </html>
@@ -249,9 +550,9 @@ def show_graph(words, open_browser=True):
     if not words:
         return None
 
-    nodes, edges = build_graph(words)
+    nodes, edges, legend = build_graph(words)
     path = pathlib.Path(OUTPUT_FILE).resolve()
-    path.write_text(render_html(nodes, edges), encoding="utf-8")
+    path.write_text(render_html(nodes, edges, legend), encoding="utf-8")
 
     opened = open_in_browser(path) if open_browser else False
 
