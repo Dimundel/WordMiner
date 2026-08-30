@@ -1,3 +1,4 @@
+import json
 import math
 import sqlite3
 
@@ -26,6 +27,11 @@ def init_db(conn):
             next_review TIMESTAMP
         )
     """)
+
+    # The table predates the embedding column, so CREATE TABLE alone won't add it.
+    columns = [row[1] for row in cursor.execute("PRAGMA table_info(words)")]
+    if "embedding" not in columns:
+        cursor.execute("ALTER TABLE words ADD COLUMN embedding TEXT")
 
     conn.commit()
     return conn
@@ -74,11 +80,19 @@ def get_words_for_practice(conn, limit=5, strict=True):
     return [dict(row) for row in cursor.fetchall()]
 
 
+def save_embedding(conn, word, vector):
+    conn.execute(
+        "UPDATE words SET embedding = ? WHERE word = ?",
+        (json.dumps(vector), word),
+    )
+    conn.commit()
+
+
 def get_all_words(conn):
     cursor = conn.cursor()
 
     cursor.execute("""
-        SELECT word, definition, context, simple_synonym, source_url, interval
+        SELECT word, definition, context, simple_synonym, source_url, interval, embedding
         FROM words
         ORDER BY word
     """)

@@ -1,5 +1,6 @@
 import html
 import json
+import math
 import os
 import pathlib
 import subprocess
@@ -8,38 +9,89 @@ from collections import defaultdict
 
 MASTERED_INTERVAL = 14
 
+# Cosine scores from this model sit in a narrow band (~0.55-0.75), so an absolute
+# threshold is either empty or complete. Each word keeps its NEIGHBOURS closest
+# peers instead, which adapts to whatever the spread happens to be.
+NEIGHBOURS = 2
+
 OUTPUT_FILE = "graph.html"
 
-# Words are linked through the source they were mined from. This is a placeholder
-# for semantic similarity: once embeddings are stored, build_edges is the only
-# function that has to change.
 CDN = "https://cdnjs.cloudflare.com/ajax/libs/vis-network/9.1.9/dist/vis-network.min.js"
 
 
-def build_graph(words):
-    nodes = []
-    edges = []
+def cosine(a, b):
+    dot = sum(x * y for x, y in zip(a, b))
+    norm = math.sqrt(sum(x * x for x in a)) * math.sqrt(sum(y * y for y in b))
 
+    return dot / norm if norm else 0.0
+
+
+def similarity_edges(words):
+    vectors = {}
+    for row in words:
+        if row.get("embedding"):
+            vectors[row["word"]] = json.loads(row["embedding"])
+
+    scores = {}
+    names = list(vectors)
+    for i, a in enumerate(names):
+        for b in names[i + 1 :]:
+            scores[(a, b)] = cosine(vectors[a], vectors[b])
+
+    # Undirected: an edge survives if either endpoint ranks the other in its top k.
+    kept = set()
+    for word in names:
+        ranked = sorted(
+            (p for p in scores if word in p),
+            key=lambda p: scores[p],
+            reverse=True,
+        )
+        kept.update(ranked[:NEIGHBOURS])
+
+    return [
+        {
+            "from": a,
+            "to": b,
+            "value": scores[(a, b)],
+            "title": f"similarity {scores[(a, b)]:.2f}",
+        }
+        for a, b in sorted(kept, key=lambda p: scores[p], reverse=True)
+    ]
+
+
+def source_edges(words):
     by_source = defaultdict(list)
     for row in words:
         by_source[row["source_url"] or "unknown"].append(row)
 
-    for row in words:
-        mastered = (row["interval"] or 0) >= MASTERED_INTERVAL
-        nodes.append(
-            {
-                "id": row["word"],
-                "label": row["word"],
-                "group": "mastered" if mastered else "learning",
-                "title": tooltip(row),
-            }
-        )
-
+    nodes = []
+    edges = []
     for source, rows in by_source.items():
         hub = f"source::{source}"
         nodes.append({"id": hub, "label": source, "group": "source"})
-        for row in rows:
-            edges.append({"from": hub, "to": row["word"]})
+        edges.extend({"from": hub, "to": row["word"]} for row in rows)
+
+    return nodes, edges
+
+
+def build_graph(words):
+    nodes = [
+        {
+            "id": row["word"],
+            "label": row["word"],
+            "group": "mastered"
+            if (row["interval"] or 0) >= MASTERED_INTERVAL
+            else "learning",
+            "title": tooltip(row),
+        }
+        for row in words
+    ]
+
+    edges = similarity_edges(words)
+    if not edges:
+        # Nothing embedded yet: fall back to grouping by where words came from.
+        hubs, edges = source_edges(words)
+        nodes.extend(hubs)
 
     return nodes, edges
 
@@ -111,6 +163,7 @@ new vis.Network(document.getElementById("graph"), data, {{
   edges: {{
     color: {{ color: "#39414d", highlight: "#6b7686" }},
     width: 1.5,
+    scaling: {{ min: 1, max: 6, label: false }},
     smooth: {{ type: "continuous" }},
   }},
   physics: {{

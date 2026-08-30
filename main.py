@@ -1,3 +1,4 @@
+import json
 import re
 import argparse
 from database import (
@@ -7,8 +8,10 @@ from database import (
     get_words_for_practice,
     get_learning_status,
     get_all_words,
+    save_embedding,
     update_word_progress,
 )
+from embedding import EmbeddingService, embedding_text
 from fetcher import get_random_article
 from graph import show_graph
 from llm import extract_words_from_text
@@ -121,12 +124,38 @@ def mode_practice(conn):
     console.print(f"[bold cyan]Your result: {score}/{len(questions)}[/bold cyan]")
 
 
+def embed_missing_words(conn, words):
+    pending = [row for row in words if not row["embedding"]]
+
+    if not pending:
+        return words
+
+    service = EmbeddingService()
+
+    with console.status(
+        f"[bold green]Embedding {len(pending)} new words...[/bold green]"
+    ):
+        for row in pending:
+            try:
+                vector = service.get_embedding(embedding_text(row))
+            except Exception as error:
+                console.print(f"[yellow]Skipped '{row['word']}': {error}[/yellow]")
+                continue
+
+            save_embedding(conn, row["word"], vector)
+            row["embedding"] = json.dumps(vector)
+
+    return words
+
+
 def mode_graph(conn):
     words = get_all_words(conn)
 
     if not words:
         console.print("[bold red]No words yet. Fetch some articles first![/bold red]")
         return
+
+    words = embed_missing_words(conn, words)
 
     path, opened = show_graph(words)
 
