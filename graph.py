@@ -194,6 +194,11 @@ def build_graph(words):
     groups = clusters(names, edges)
     positions = layout(groups)
 
+    degree = defaultdict(int)
+    for edge in edges:
+        degree[edge["from"]] += 1
+        degree[edge["to"]] += 1
+
     colour_of = {}
     for index, members in enumerate(groups):
         for word in members:
@@ -208,6 +213,8 @@ def build_graph(words):
             "mastered": (row["interval"] or 0) >= MASTERED_INTERVAL,
             "title": tooltip(row),
             "url": row.get("article_url"),
+            # Well-connected words read as anchors, lone ones stay quiet.
+            "size": 9 + 3.2 * math.sqrt(degree[row["word"]]),
             "x": round(positions[row["word"]][0]),
             "y": round(positions[row["word"]][1]),
         }
@@ -441,21 +448,89 @@ const network = new vis.Network(
         springLength: 130,
         springConstant: 0.05,
         avoidOverlap: 0.35,
+        damping: 0.35,
       },
+      // Left running: dragging a word should pull its neighbours along and let
+      // the rest settle back, rather than moving one frozen dot.
       stabilization: { iterations: 400, updateInterval: 40 },
+      minVelocity: 0.4,
       timestep: 0.4,
     },
-    interaction: { hover: true, tooltipDelay: 120, navigationButtons: false },
+    interaction: {
+      hover: true,
+      tooltipDelay: 120,
+      navigationButtons: false,
+      dragNodes: true,
+      hideEdgesOnDrag: false,
+    },
   }
 );
 
+// --- focus ------------------------------------------------------------------
+const fade = (hex, alpha) => {
+  const v = parseInt(hex.replace("#", ""), 16);
+  return `rgba(${(v >> 16) & 255}, ${(v >> 8) & 255}, ${v & 255}, ${alpha})`;
+};
+
+let focused = null;
+let labelled = true;
+
+// Hovering pushes everything but the word and its neighbours into the
+// background, so a single thread can be followed through a dense patch.
+function focus(id) {
+  focused = id && nodes.get(id) ? id : null;
+  const near = focused
+    ? new Set([focused, ...network.getConnectedNodes(focused)])
+    : null;
+
+  nodes.update(data.nodes.map(node => {
+    const lit = !near || near.has(node.id);
+    const hue = hueFor(node);
+    const ink = !labelled
+      ? "rgba(0,0,0,0)"
+      : lit ? css("--ink") : fade(css("--ink"), 0.22);
+
+    if (lit) return { id: node.id, ...paint(node), font: { color: ink } };
+
+    return {
+      id: node.id,
+      color: {
+        background: node.mastered ? fade(css("--surface"), 0.35) : fade(hue, 0.16),
+        border: fade(hue, 0.28),
+      },
+      borderWidth: node.mastered ? 3 : 1.5,
+      font: { color: ink },
+    };
+  }));
+
+  edges.update(data.edges.map((edge, i) => {
+    const lit = !near || (near.has(edge.from) && near.has(edge.to));
+    return {
+      id: "e" + i,
+      color: {
+        color: lit ? css("--edge") : fade(css("--edge"), 0.3),
+        highlight: css("--ink-soft"),
+        hover: css("--ink-soft"),
+      },
+    };
+  }));
+}
+
+network.on("hoverNode", params => focus(params.node));
+network.on("blurNode", () => focus(null));
+
+// Labels collapse into noise when zoomed out far enough that dots overlap.
+network.on("zoom", ({ scale }) => {
+  const show = scale > 0.5;
+  if (show !== labelled) {
+    labelled = show;
+    focus(focused);
+  }
+});
+
 // --- theme ------------------------------------------------------------------
 function repaint() {
-  nodes.update(data.nodes.map(n => ({ id: n.id, ...paint(n) })));
-  network.setOptions({
-    nodes: { font: { color: css("--ink") } },
-    edges: { color: { color: css("--edge"), highlight: css("--ink-soft"), hover: css("--ink-soft") } },
-  });
+  focus(focused);
   document.querySelectorAll(".swatch").forEach(el => {
     el.style.background = hueFor({ cluster: Number(el.dataset.cluster) });
   });
@@ -501,13 +576,19 @@ if (data.legend.alone.length) {
 
 // --- open the article --------------------------------------------------------
 const urls = Object.fromEntries(data.nodes.filter(n => n.url).map(n => [n.id, n.url]));
+
+let dragging = false;
+network.on("dragStart", () => { dragging = false; });
+network.on("dragging", () => { dragging = true; });
+
 network.on("click", params => {
+  // Letting go after dragging a word must not count as opening it.
+  if (dragging) { dragging = false; return; }
   const url = urls[params.nodes[0]];
   if (url) window.open(url, "_blank", "noopener");
 });
 
 network.once("stabilizationIterationsDone", () => {
-  network.setOptions({ physics: { enabled: false } });
   network.fit({ animation: { duration: 500 } });
 });
 
