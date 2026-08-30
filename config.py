@@ -15,6 +15,11 @@ EMBEDDING_MODEL = "gemini-embedding-2"
 EMBEDDING_DIMENSIONS = 768
 ACTIVE_LIMIT = 20
 
+# Podcast and video pages carry only a blurb (500-1300 chars) where real
+# articles run 2600 and up, and yield almost no vocabulary. Skip them.
+MIN_ARTICLE_LENGTH = 2000
+ARTICLE_ATTEMPTS = 5
+
 SOURCES = {
     "Aeon": "https://aeon.co/feed.rss",
     "BBC": "http://feeds.bbci.co.uk/news/rss.xml",

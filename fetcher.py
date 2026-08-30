@@ -2,7 +2,7 @@ import feedparser
 import requests
 import random
 from bs4 import BeautifulSoup
-from config import SOURCES
+from config import ARTICLE_ATTEMPTS, MIN_ARTICLE_LENGTH, SOURCES
 
 
 def get_full_text(url):
@@ -32,7 +32,11 @@ def get_random_article():
     if not feed.entries:
         return None, None, None, None
 
-    article = random.choice(feed.entries[:10])
+    entries = feed.entries[:10]
+    for article in random.sample(entries, min(ARTICLE_ATTEMPTS, len(entries))):
+        full_text = get_full_text(article.link)
 
-    full_text = get_full_text(article.link)
-    return source_name, article.title, article.link, full_text
+        if full_text and len(full_text) >= MIN_ARTICLE_LENGTH:
+            return source_name, article.title, article.link, full_text
+
+    return None, None, None, None

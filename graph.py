@@ -16,7 +16,14 @@ MASTERED_INTERVAL = 14
 # Subtracting the mean vector removes that shared component and spreads the
 # scores across roughly -0.24..+0.20, where a threshold becomes meaningful and
 # genuinely unrelated words simply stay disconnected.
-SIMILARITY_THRESHOLD = 0.05
+#
+# A fixed cut-off drifts as the vocabulary grows: the pair count rises with the
+# square of the words, so more of them clear any given value until the edges
+# chain into a single blob. The cut-off therefore tracks a percentile of the
+# scores, with a floor so an unrelated vocabulary stays unconnected rather than
+# being forced to yield its top few percent.
+SIMILARITY_FLOOR = 0.05
+SIMILARITY_PERCENTILE = 0.94
 
 OUTPUT_FILE = "graph.html"
 
@@ -51,20 +58,25 @@ def similarity_edges(words):
 
     vectors = centered(vectors)
 
-    edges = []
     names = list(vectors)
+    scores = {}
     for i, a in enumerate(names):
         for b in names[i + 1 :]:
-            score = cosine(vectors[a], vectors[b])
-            if score >= SIMILARITY_THRESHOLD:
-                edges.append(
-                    {
-                        "from": a,
-                        "to": b,
-                        "value": score,
-                        "title": f"similarity {score:+.2f}",
-                    }
-                )
+            scores[(a, b)] = cosine(vectors[a], vectors[b])
+
+    ranked = sorted(scores.values())
+    cutoff = max(SIMILARITY_FLOOR, ranked[int(SIMILARITY_PERCENTILE * len(ranked))])
+
+    edges = [
+        {
+            "from": a,
+            "to": b,
+            "value": score,
+            "title": f"similarity {score:+.2f}",
+        }
+        for (a, b), score in scores.items()
+        if score >= cutoff
+    ]
 
     return sorted(edges, key=lambda e: e["value"], reverse=True)
 

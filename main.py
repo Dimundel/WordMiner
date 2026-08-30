@@ -36,6 +36,10 @@ def mode_fetch(conn):
 
     with console.status("[bold green]Searching for new article...[/bold green]"):
         source, title, article_url, text = get_random_article()
+
+    if not source:
+        console.print("[yellow]No usable article found, trying another source...[/yellow]")
+
     if source:
         with console.status("[bold green]Analyzing text...[/bold green]"):
             words = extract_words_from_text(text)
