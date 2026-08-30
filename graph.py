@@ -1,4 +1,3 @@
-import html
 import json
 import math
 import os
@@ -163,25 +162,6 @@ def layout(groups):
     return positions
 
 
-def tooltip(row):
-    parts = [f"<b>{html.escape(row['word'])}</b>"]
-
-    if row["simple_synonym"]:
-        parts.append(f"≈ {html.escape(row['simple_synonym'])}")
-    if row["definition"]:
-        parts.append(html.escape(row["definition"]))
-    if row["context"]:
-        parts.append(f"<i>{html.escape(row['context'])}</i>")
-
-    if row.get("source"):
-        origin = html.escape(row["source"])
-        if row.get("article_url"):
-            origin += " &middot; click to open the article"
-        parts.append(f"<small>{origin}</small>")
-
-    return "<br><br>".join(parts)
-
-
 def build_graph(words):
     edges = similarity_edges(words)
     hubs = []
@@ -211,7 +191,10 @@ def build_graph(words):
             "label": row["word"],
             "cluster": colour_of.get(row["word"]),
             "mastered": (row["interval"] or 0) >= MASTERED_INTERVAL,
-            "title": tooltip(row),
+            "synonym": row["simple_synonym"],
+            "definition": row["definition"],
+            "context": row["context"],
+            "source": row["source"],
             "url": row.get("article_url"),
             # Well-connected words read as anchors, lone ones stay quiet.
             "size": 9 + 3.2 * math.sqrt(degree[row["word"]]),
@@ -220,7 +203,7 @@ def build_graph(words):
         }
         for row in words
     ]
-    nodes.extend({**hub, "mastered": False, "title": hub["label"]} for hub in hubs)
+    nodes.extend({**hub, "mastered": False} for hub in hubs)
 
     legend = [
         {
@@ -362,8 +345,11 @@ TEMPLATE = """<!doctype html>
     white-space: normal;
     font: 13px/1.55 ui-sans-serif, system-ui, sans-serif;
   }
-  div.vis-tooltip small { color: var(--ink-faint); }
-  div.vis-tooltip i { color: var(--ink-soft); }
+  .tip { display: grid; gap: 8px; }
+  .tip .word { font-weight: 600; font-size: 14px; }
+  .tip .syn { color: var(--ink-soft); }
+  .tip .ctx { color: var(--ink-soft); font-style: italic; }
+  .tip .src { color: var(--ink-faint); font-size: 12px; }
 
   @media (max-width: 620px) {
     .panel { position: static; width: auto; margin: 12px; max-height: 38%; }
@@ -419,7 +405,33 @@ const paint = node => {
   };
 };
 
-const nodes = new vis.DataSet(data.nodes.map(n => ({ ...n, ...paint(n) })));
+// vis-network 9 assigns a string title with textContent, so markup would be
+// shown literally. An element is inserted as-is, and building it here keeps
+// every value escaped by the DOM rather than by hand.
+function tooltip(node) {
+  const tip = document.createElement("div");
+  tip.className = "tip";
+
+  const line = (cls, text) => {
+    if (!text) return;
+    const el = document.createElement("div");
+    el.className = cls;
+    el.textContent = text;
+    tip.appendChild(el);
+  };
+
+  line("word", node.label);
+  if (node.synonym) line("syn", "\u2248 " + node.synonym);
+  line("def", node.definition);
+  line("ctx", node.context);
+  line("src", node.source && node.source + (node.url ? " \u00b7 click to open the article" : ""));
+
+  return tip;
+}
+
+const nodes = new vis.DataSet(
+  data.nodes.map(n => ({ ...n, ...paint(n), title: tooltip(n) }))
+);
 const edges = new vis.DataSet(
   data.edges.map((e, i) => ({ id: "e" + i, ...e }))
 );
