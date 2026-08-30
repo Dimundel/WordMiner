@@ -6,9 +6,11 @@ from database import (
     save_words,
     get_words_for_practice,
     get_learning_status,
+    get_all_words,
     update_word_progress,
 )
 from fetcher import get_random_article
+from graph import show_graph
 from llm import extract_words_from_text
 from ui import (
     console,
@@ -119,15 +121,35 @@ def mode_practice(conn):
     console.print(f"[bold cyan]Your result: {score}/{len(questions)}[/bold cyan]")
 
 
+def mode_graph(conn):
+    words = get_all_words(conn)
+
+    if not words:
+        console.print("[bold red]No words yet. Fetch some articles first![/bold red]")
+        return
+
+    path, opened = show_graph(words)
+
+    if opened:
+        console.print(f"[bold green]Graph opened in your browser:[/bold green] {path}")
+    else:
+        console.print(
+            f"[yellow]Could not open a browser. Open this file manually:[/yellow] {path}"
+        )
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--practice", action="store_true")
+    parser.add_argument("--graph", action="store_true")
     args = parser.parse_args()
 
     conn = get_connection()
     init_db(conn)
 
-    if args.practice:
+    if args.graph:
+        mode_graph(conn)
+    elif args.practice:
         mode_practice(conn)
     else:
         try:
