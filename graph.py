@@ -9,10 +9,14 @@ from collections import defaultdict
 
 MASTERED_INTERVAL = 14
 
-# Cosine scores from this model sit in a narrow band (~0.55-0.75), so an absolute
-# threshold is either empty or complete. Each word keeps its NEIGHBOURS closest
-# peers instead, which adapts to whatever the spread happens to be.
-NEIGHBOURS = 2
+# Raw cosines from this model sit in a narrow +0.58..+0.76 band: every pair of
+# texts shares a large common component that swamps the real signal, so no
+# absolute threshold separates related words from unrelated ones.
+#
+# Subtracting the mean vector removes that shared component and spreads the
+# scores across roughly -0.24..+0.20, where a threshold becomes meaningful and
+# genuinely unrelated words simply stay disconnected.
+SIMILARITY_THRESHOLD = 0.05
 
 OUTPUT_FILE = "graph.html"
 
@@ -26,37 +30,43 @@ def cosine(a, b):
     return dot / norm if norm else 0.0
 
 
+def centered(vectors):
+    """Remove the component every embedding shares, which carries no meaning."""
+    words = list(vectors)
+    size = len(vectors[words[0]])
+    mean = [sum(vectors[w][i] for w in words) / len(words) for i in range(size)]
+
+    return {w: [value - mean[i] for i, value in enumerate(vectors[w])] for w in words}
+
+
 def similarity_edges(words):
     vectors = {}
     for row in words:
         if row.get("embedding"):
             vectors[row["word"]] = json.loads(row["embedding"])
 
-    scores = {}
+    # Centering needs a population to average over; below that, nothing to draw.
+    if len(vectors) < 3:
+        return []
+
+    vectors = centered(vectors)
+
+    edges = []
     names = list(vectors)
     for i, a in enumerate(names):
         for b in names[i + 1 :]:
-            scores[(a, b)] = cosine(vectors[a], vectors[b])
+            score = cosine(vectors[a], vectors[b])
+            if score >= SIMILARITY_THRESHOLD:
+                edges.append(
+                    {
+                        "from": a,
+                        "to": b,
+                        "value": score,
+                        "title": f"similarity {score:+.2f}",
+                    }
+                )
 
-    # Undirected: an edge survives if either endpoint ranks the other in its top k.
-    kept = set()
-    for word in names:
-        ranked = sorted(
-            (p for p in scores if word in p),
-            key=lambda p: scores[p],
-            reverse=True,
-        )
-        kept.update(ranked[:NEIGHBOURS])
-
-    return [
-        {
-            "from": a,
-            "to": b,
-            "value": scores[(a, b)],
-            "title": f"similarity {scores[(a, b)]:.2f}",
-        }
-        for a, b in sorted(kept, key=lambda p: scores[p], reverse=True)
-    ]
+    return sorted(edges, key=lambda e: e["value"], reverse=True)
 
 
 def source_edges(words):
