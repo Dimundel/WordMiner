@@ -35,7 +35,7 @@ def mode_fetch(conn):
         return False
 
     with console.status("[bold green]Searching for new article...[/bold green]"):
-        source, title, text = get_random_article()
+        source, title, article_url, text = get_random_article()
     if source:
         with console.status("[bold green]Analyzing text...[/bold green]"):
             words = extract_words_from_text(text)
@@ -43,7 +43,7 @@ def mode_fetch(conn):
         print()
         display_words(words)
 
-        save_words(conn, words, source)
+        save_words(conn, words, source, article_url)
         console.print(
             "\n[dim]Press Enter to get another one or Ctrl+C to exit...[/dim]"
         )

@@ -72,7 +72,7 @@ def similarity_edges(words):
 def source_edges(words):
     by_source = defaultdict(list)
     for row in words:
-        by_source[row["source_url"] or "unknown"].append(row)
+        by_source[row["source"] or "unknown"].append(row)
 
     nodes = []
     edges = []
@@ -93,6 +93,7 @@ def build_graph(words):
             if (row["interval"] or 0) >= MASTERED_INTERVAL
             else "learning",
             "title": tooltip(row),
+            "url": row.get("article_url"),
         }
         for row in words
     ]
@@ -115,6 +116,12 @@ def tooltip(row):
         parts.append(html.escape(row["definition"]))
     if row["context"]:
         parts.append(f"<i>{html.escape(row['context'])}</i>")
+
+    if row.get("source"):
+        origin = html.escape(row["source"])
+        if row.get("article_url"):
+            origin += " &middot; click to open the article"
+        parts.append(f"<small>{origin}</small>")
 
     return "<br><br>".join(parts)
 
@@ -162,7 +169,7 @@ const groups = {{
   }},
 }};
 
-new vis.Network(document.getElementById("graph"), data, {{
+const network = new vis.Network(document.getElementById("graph"), data, {{
   groups: groups,
   nodes: {{
     shape: "dot",
@@ -182,6 +189,15 @@ new vis.Network(document.getElementById("graph"), data, {{
     stabilization: {{ iterations: 300 }},
   }},
   interaction: {{ hover: true, tooltipDelay: 120 }},
+}});
+
+const urls = Object.fromEntries(
+  data.nodes.filter(n => n.url).map(n => [n.id, n.url])
+);
+
+network.on("click", params => {{
+  const url = urls[params.nodes[0]];
+  if (url) window.open(url, "_blank", "noopener");
 }});
 </script>
 </body>

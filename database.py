@@ -20,7 +20,8 @@ def init_db(conn):
             embedding TEXT,
             context TEXT,
             simple_synonym TEXT,
-            source_url TEXT,
+            source TEXT,
+            article_url TEXT,
             added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             ease_factor REAL DEFAULT 2.5,
             interval INTEGER DEFAULT 1,
@@ -28,29 +29,41 @@ def init_db(conn):
         )
     """)
 
-    # The table predates the embedding column, so CREATE TABLE alone won't add it.
-    columns = [row[1] for row in cursor.execute("PRAGMA table_info(words)")]
-    if "embedding" not in columns:
+    # CREATE TABLE alone never alters a table that already exists, so columns
+    # added after the first release have to be migrated in explicitly.
+    def columns():
+        return [row[1] for row in cursor.execute("PRAGMA table_info(words)")]
+
+    if "embedding" not in columns():
         cursor.execute("ALTER TABLE words ADD COLUMN embedding TEXT")
+
+    # source_url only ever held the publication name, never a URL.
+    if "source_url" in columns() and "source" not in columns():
+        cursor.execute("ALTER TABLE words RENAME COLUMN source_url TO source")
+
+    if "article_url" not in columns():
+        cursor.execute("ALTER TABLE words ADD COLUMN article_url TEXT")
 
     conn.commit()
     return conn
 
 
-def save_words(conn, words, source_url):
+def save_words(conn, words, source, article_url):
     cursor = conn.cursor()
     for row in words:
         cursor.execute(
             """
-            INSERT OR IGNORE INTO words (word, definition, context, simple_synonym, source_url)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT OR IGNORE INTO words
+                (word, definition, context, simple_synonym, source, article_url)
+            VALUES (?, ?, ?, ?, ?, ?)
         """,
             (
                 row["word"].strip(),
                 row["definition"],
                 row["context"],
                 row["simple_synonym"].strip(),
-                source_url,
+                source,
+                article_url,
             ),
         )
     conn.commit()
@@ -92,7 +105,8 @@ def get_all_words(conn):
     cursor = conn.cursor()
 
     cursor.execute("""
-        SELECT word, definition, context, simple_synonym, source_url, interval, embedding
+        SELECT word, definition, context, simple_synonym, source, article_url,
+               interval, embedding
         FROM words
         ORDER BY word
     """)

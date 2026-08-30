@@ -30,9 +30,9 @@ def get_random_article():
     feed = feedparser.parse(url)
 
     if not feed.entries:
-        return None, None, None
+        return None, None, None, None
 
     article = random.choice(feed.entries[:10])
 
     full_text = get_full_text(article.link)
-    return source_name, article.title, full_text
+    return source_name, article.title, article.link, full_text
