@@ -10,6 +10,9 @@ if not api_key:
 
 CLIENT = genai.Client()
 MODEL = "gemini-flash-lite-latest"
+EMBEDDING_MODEL = "gemini-embedding-2"
+# Full size is 3072; 768 keeps the JSON in SQLite small and ranks the same.
+EMBEDDING_DIMENSIONS = 768
 ACTIVE_LIMIT = 20
 
 SOURCES = {
